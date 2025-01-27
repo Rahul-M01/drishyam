@@ -1,45 +1,51 @@
 package com.site.drishyam.controller;
 
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.UrlResource;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/files")
 public class FileController {
 
-    @Value("${file.directory}")
-    private String directory;
+    private static final Path VIDEO_DIRECTORY = Paths.get(System.getProperty("user.dir"), "drishyam", "videos");
 
-    @GetMapping("/download/{filename}")
-    public ResponseEntity<Resource> downloadFile(@PathVariable String filename) {
+    @GetMapping("/list")
+    public ResponseEntity<List<String>> listAllVideos() {
         try {
-            // Resolve the file path
-            Path filePath = Paths.get(directory).resolve(filename).normalize();
+            System.out.println("Resolved video directory: " + VIDEO_DIRECTORY.toAbsolutePath());
 
-            // Load the file as a resource
-            Resource resource = new UrlResource(filePath.toUri());
+            File directory = VIDEO_DIRECTORY.toFile();
 
-            // Check if the file exists and is readable
-            if (!resource.exists() || !resource.isReadable()) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            if (!directory.exists() || !directory.isDirectory()) {
+                System.err.println("Directory does not exist or is not accessible.");
+                return ResponseEntity.badRequest().body(List.of("Directory does not exist or is not accessible."));
             }
 
-            // Return the file as a response
-            return ResponseEntity.ok()
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + resource.getFilename() + "\"")
-                    .header(HttpHeaders.CONTENT_TYPE, "application/pdf")
-                    .body(resource);
+            File[] files = directory.listFiles((dir, name) ->
+                    name.toLowerCase().endsWith(".mp4") ||
+                            name.toLowerCase().endsWith(".mkv") ||
+                            name.toLowerCase().endsWith(".avi")
+            );
+
+            List<String> videoFiles = new ArrayList<>();
+            if (files != null) {
+                for (File file : files) {
+                    videoFiles.add(file.getName());
+                }
+            }
+
+            System.out.println("Videos found: " + videoFiles);
+            return ResponseEntity.ok(videoFiles);
 
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().body(List.of("An error occurred while listing files."));
         }
     }
 }
