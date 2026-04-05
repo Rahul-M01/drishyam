@@ -13,13 +13,12 @@ import java.util.Date;
 public class JWTUtil {
 
     private final SecretKey SECRET_KEY;
-    private final long EXPIRATION_TIME = 86400000; // 1 day in milliseconds
+    private final long EXPIRATION_TIME = 86400000;
 
     public JWTUtil(@Value("${jwt.secret}") String secret) {
         this.SECRET_KEY = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
-    // Generate JWT
     public String generateToken(String username) {
         return Jwts.builder()
                 .setSubject(username)
@@ -29,7 +28,6 @@ public class JWTUtil {
                 .compact();
     }
 
-    // Validate JWT and extract username
     public String validateToken(String token) {
         try {
             Claims claims = Jwts.parserBuilder()
@@ -37,9 +35,9 @@ public class JWTUtil {
                     .build()
                     .parseClaimsJws(token)
                     .getBody();
-            return claims.getSubject(); // Extract username
+            return claims.getSubject();
         } catch (JwtException | IllegalArgumentException e) {
-            return null; // Invalid token
+            return null;
         }
     }
 }

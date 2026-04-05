@@ -43,7 +43,6 @@ public class VideoController {
         try {
             Video video = videoDownloadService.downloadFromInstagram(url);
 
-            // Auto-extract recipe from caption if requested
             if (extractRecipe && video.getCaption() != null && !video.getCaption().isBlank()) {
                 recipeScrapingService.extractFromCaption(video.getCaption(), video);
             }

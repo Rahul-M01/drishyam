@@ -40,5 +40,20 @@ out/
 ### Videos ###
 videos/
 
+### H2 database ###
+data/
+
+### Electron build output ###
+/dist/
+
 ### Node modules ###
+node_modules/
 frontend/node_modules/
+frontend/dist/
+
+### Gradle caches ###
+gradle/caches/
+gradle/daemon/
+gradle/native/
+gradle/wrapper/dists/
+gradle/.tmp/

@@ -24,6 +24,9 @@ public class VideoDownloadService {
     @Value("${video.storage.path}")
     private String storagePath;
 
+    @Value("${ytdlp.path:yt-dlp}")
+    private String ytdlpPath;
+
     public VideoDownloadService(VideoRepository videoRepository) {
         this.videoRepository = videoRepository;
     }
@@ -32,12 +35,11 @@ public class VideoDownloadService {
         Path videoDir = Paths.get(storagePath).toAbsolutePath();
         Files.createDirectories(videoDir);
 
-        // First, get metadata (title, caption) using yt-dlp --dump-json
         String caption = "";
         String title = "Instagram Video";
         try {
             ProcessBuilder metaPb = new ProcessBuilder(
-                "yt-dlp", "--dump-json", "--no-download", url
+                ytdlpPath, "--dump-json", "--no-download", url
             );
             metaPb.redirectErrorStream(true);
             Process metaProcess = metaPb.start();
@@ -66,12 +68,11 @@ public class VideoDownloadService {
             System.err.println("Could not fetch metadata: " + e.getMessage());
         }
 
-        // Download the video
         String fileName = UUID.randomUUID().toString() + ".mp4";
         Path outputPath = videoDir.resolve(fileName);
 
         ProcessBuilder pb = new ProcessBuilder(
-            "yt-dlp",
+            ytdlpPath,
             "-f", "mp4/best",
             "--merge-output-format", "mp4",
             "-o", outputPath.toString(),
@@ -94,12 +95,11 @@ public class VideoDownloadService {
             throw new RuntimeException("yt-dlp failed with exit code " + exitCode + ": " + output);
         }
 
-        // Generate thumbnail using yt-dlp
         String thumbName = UUID.randomUUID().toString() + ".jpg";
         Path thumbPath = videoDir.resolve(thumbName);
         try {
             ProcessBuilder thumbPb = new ProcessBuilder(
-                "yt-dlp", "--write-thumbnail", "--skip-download",
+                ytdlpPath, "--write-thumbnail", "--skip-download",
                 "--convert-thumbnails", "jpg",
                 "-o", videoDir.resolve("thumb_temp").toString(),
                 url
@@ -108,7 +108,6 @@ public class VideoDownloadService {
             Process thumbProcess = thumbPb.start();
             thumbProcess.waitFor();
 
-            // Find the thumbnail file
             Files.list(videoDir)
                 .filter(p -> p.getFileName().toString().startsWith("thumb_temp") &&
                            p.getFileName().toString().endsWith(".jpg"))
@@ -124,7 +123,6 @@ public class VideoDownloadService {
             System.err.println("Thumbnail generation failed: " + e.getMessage());
         }
 
-        // Truncate title if too long
         if (title.length() > 100) {
             title = title.substring(0, 100) + "...";
         }
@@ -152,7 +150,6 @@ public class VideoDownloadService {
     public void deleteVideo(Long id) {
         Video video = videoRepository.findById(id).orElse(null);
         if (video != null) {
-            // Delete video file
             try {
                 Path videoFile = Paths.get(storagePath).toAbsolutePath().resolve(video.getFileName());
                 Files.deleteIfExists(videoFile);

@@ -1,5 +1,7 @@
 package com.site.drishyam.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.site.drishyam.model.Recipe;
 import com.site.drishyam.model.Video;
 import com.site.drishyam.repository.RecipeRepository;
@@ -9,12 +11,14 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
 import java.util.List;
 
 @Service
 public class RecipeScrapingService {
 
     private final RecipeRepository recipeRepository;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     public RecipeScrapingService(RecipeRepository recipeRepository) {
         this.recipeRepository = recipeRepository;
@@ -28,23 +32,33 @@ public class RecipeScrapingService {
 
         Recipe recipe = new Recipe();
         recipe.setSourceUrl(url);
-        recipe.setSource(doc.baseUri() != null ? extractDomain(url) : "Web");
+        recipe.setSource(extractDomain(url));
 
-        // Try to extract from JSON-LD structured data first (most recipe sites use this)
+        // try structured data first — most recipe sites have this
         Elements jsonLdScripts = doc.select("script[type=application/ld+json]");
         for (Element script : jsonLdScripts) {
             String json = script.html();
             if (json.contains("\"Recipe\"") || json.contains("\"@type\":\"Recipe\"")) {
-                return parseJsonLdRecipe(json, recipe);
+                return parseJsonLd(json, recipe);
             }
         }
 
-        // Fallback: extract from HTML meta tags and content
-        recipe.setTitle(extractTitle(doc));
-        recipe.setDescription(extractDescription(doc));
-        recipe.setImageUrl(extractImage(doc));
-        recipe.setIngredients(extractIngredients(doc));
-        recipe.setInstructions(extractInstructions(doc));
+        // fall back to scraping the recipe card widget directly
+        Element card = findRecipeCard(doc);
+        if (card != null) {
+            recipe.setTitle(extractTitleFromCard(card, doc));
+            recipe.setDescription(extractDescription(doc));
+            recipe.setImageUrl(extractImageFromCard(card, doc));
+            recipe.setIngredients(extractIngredientsFromCard(card));
+            recipe.setInstructions(extractInstructionsFromCard(card));
+            extractCardMeta(card, recipe);
+        } else {
+            recipe.setTitle(extractTitle(doc));
+            recipe.setDescription(extractDescription(doc));
+            recipe.setImageUrl(extractImage(doc));
+            recipe.setIngredients(extractIngredients(doc));
+            recipe.setInstructions(extractInstructions(doc));
+        }
 
         return recipeRepository.save(recipe);
     }
@@ -57,16 +71,12 @@ public class RecipeScrapingService {
         recipe.setSourceUrl(video.getSourceUrl());
         recipe.setVideo(video);
 
-        // Extract title - first line or first sentence
         String[] lines = caption.split("\n");
         String title = lines[0].replaceAll("[#@]\\S+", "").trim();
         if (title.length() > 100) title = title.substring(0, 100) + "...";
         recipe.setTitle(title.isEmpty() ? "Instagram Recipe" : title);
+        recipe.setDescription(caption.replaceAll("#\\S+", "").replaceAll("@\\S+", "").trim());
 
-        // The full caption is the recipe description
-        recipe.setDescription(cleanCaption(caption));
-
-        // Try to extract ingredients if listed with bullet points or dashes
         StringBuilder ingredients = new StringBuilder();
         StringBuilder instructions = new StringBuilder();
         boolean inIngredients = false;
@@ -84,13 +94,8 @@ public class RecipeScrapingService {
                 inIngredients = false;
                 continue;
             }
-
-            if (inIngredients && !line.trim().isEmpty()) {
-                ingredients.append(line.trim()).append("\n");
-            }
-            if (inInstructions && !line.trim().isEmpty()) {
-                instructions.append(line.trim()).append("\n");
-            }
+            if (inIngredients && !line.trim().isEmpty()) ingredients.append(line.trim()).append("\n");
+            if (inInstructions && !line.trim().isEmpty()) instructions.append(line.trim()).append("\n");
         }
 
         if (!ingredients.isEmpty()) recipe.setIngredients(ingredients.toString().trim());
@@ -119,58 +124,176 @@ public class RecipeScrapingService {
         return recipeRepository.findByTitleContainingIgnoreCase(query);
     }
 
-    private Recipe parseJsonLdRecipe(String json, Recipe recipe) throws Exception {
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        com.fasterxml.jackson.databind.JsonNode root = mapper.readTree(json);
+    // ---- JSON-LD parsing ----
 
-        // Handle arrays - some sites wrap in an array
-        if (root.isArray()) {
-            for (com.fasterxml.jackson.databind.JsonNode node : root) {
-                if (node.has("@type") && node.get("@type").asText().contains("Recipe")) {
-                    root = node;
-                    break;
-                }
-            }
-        }
+    private Recipe parseJsonLd(String json, Recipe recipe) throws Exception {
+        JsonNode root = mapper.readTree(json);
+        JsonNode node = findRecipeNode(root);
+        if (node == null) return recipeRepository.save(recipe);
 
-        if (root.has("name")) recipe.setTitle(root.get("name").asText());
-        if (root.has("description")) recipe.setDescription(root.get("description").asText());
-        if (root.has("image")) {
-            com.fasterxml.jackson.databind.JsonNode img = root.get("image");
+        if (node.has("name")) recipe.setTitle(node.get("name").asText());
+        if (node.has("description")) recipe.setDescription(node.get("description").asText());
+
+        if (node.has("image")) {
+            JsonNode img = node.get("image");
             if (img.isTextual()) recipe.setImageUrl(img.asText());
-            else if (img.isArray() && !img.isEmpty()) recipe.setImageUrl(img.get(0).asText());
-            else if (img.has("url")) recipe.setImageUrl(img.get("url").asText());
+            else if (img.isArray() && !img.isEmpty()) {
+                JsonNode first = img.get(0);
+                recipe.setImageUrl(first.isTextual() ? first.asText() : first.path("url").asText(null));
+            } else if (img.has("url")) recipe.setImageUrl(img.get("url").asText());
         }
-        if (root.has("recipeIngredient")) {
+
+        if (node.has("recipeIngredient")) {
             StringBuilder sb = new StringBuilder();
-            for (com.fasterxml.jackson.databind.JsonNode ing : root.get("recipeIngredient")) {
-                sb.append(ing.asText()).append("\n");
-            }
+            for (JsonNode ing : node.get("recipeIngredient")) sb.append(ing.asText()).append("\n");
             recipe.setIngredients(sb.toString().trim());
         }
-        if (root.has("recipeInstructions")) {
+
+        if (node.has("recipeInstructions")) {
             StringBuilder sb = new StringBuilder();
-            for (com.fasterxml.jackson.databind.JsonNode step : root.get("recipeInstructions")) {
-                if (step.isTextual()) {
-                    sb.append(step.asText()).append("\n");
-                } else if (step.has("text")) {
-                    sb.append(step.get("text").asText()).append("\n");
-                }
-            }
+            collectSteps(node.get("recipeInstructions"), sb);
             recipe.setInstructions(sb.toString().trim());
         }
-        if (root.has("totalTime")) recipe.setCookTime(root.get("totalTime").asText().replace("PT", ""));
-        if (root.has("recipeYield")) {
-            com.fasterxml.jackson.databind.JsonNode yield = root.get("recipeYield");
-            recipe.setServings(yield.isArray() ? yield.get(0).asText() : yield.asText());
+
+        if (node.has("totalTime")) recipe.setCookTime(formatDuration(node.get("totalTime").asText()));
+        else if (node.has("cookTime")) recipe.setCookTime(formatDuration(node.get("cookTime").asText()));
+
+        if (node.has("recipeYield")) {
+            JsonNode y = node.get("recipeYield");
+            recipe.setServings(y.isArray() ? y.get(0).asText() : y.asText());
         }
-        if (root.has("recipeCuisine")) {
-            com.fasterxml.jackson.databind.JsonNode cuisine = root.get("recipeCuisine");
-            recipe.setCuisine(cuisine.isArray() ? cuisine.get(0).asText() : cuisine.asText());
+        if (node.has("recipeCuisine")) {
+            JsonNode c = node.get("recipeCuisine");
+            recipe.setCuisine(c.isArray() ? c.get(0).asText() : c.asText());
         }
 
         return recipeRepository.save(recipe);
     }
+
+    // walks through the json-ld tree to find the Recipe node
+    // handles @graph arrays (wordpress/yoast), top-level arrays, and @type as array
+    private JsonNode findRecipeNode(JsonNode node) {
+        if (node == null) return null;
+        if (node.isArray()) {
+            for (JsonNode child : node) {
+                JsonNode found = findRecipeNode(child);
+                if (found != null) return found;
+            }
+            return null;
+        }
+        if (node.isObject()) {
+            if (isRecipeType(node)) return node;
+            if (node.has("@graph")) return findRecipeNode(node.get("@graph"));
+        }
+        return null;
+    }
+
+    private boolean isRecipeType(JsonNode node) {
+        JsonNode type = node.get("@type");
+        if (type == null) return false;
+        if (type.isTextual()) return type.asText().contains("Recipe");
+        if (type.isArray()) {
+            for (JsonNode t : type) if (t.asText().contains("Recipe")) return true;
+        }
+        return false;
+    }
+
+    // handles HowToStep, HowToSection (with nested itemListElement), and plain strings
+    private void collectSteps(JsonNode instructions, StringBuilder sb) {
+        for (JsonNode step : instructions) {
+            if (step.isTextual()) sb.append(step.asText()).append("\n");
+            else if (step.has("text")) sb.append(step.get("text").asText()).append("\n");
+            else if (step.has("itemListElement")) collectSteps(step.get("itemListElement"), sb);
+        }
+    }
+
+    private String formatDuration(String iso) {
+        if (iso == null) return null;
+        return iso.replace("PT", "").replace("pt", "")
+            .replaceAll("(\\d+)H", "$1h ").replaceAll("(\\d+)M", "$1min").trim();
+    }
+
+    // ---- recipe card extraction (html fallback) ----
+
+    private Element findRecipeCard(Document doc) {
+        String[] selectors = {
+            ".wprm-recipe-container, .wprm-recipe",   // WP Recipe Maker
+            ".tasty-recipes",                          // Tasty Recipes
+            ".mv-recipe-card, .mv-create-card",        // Mediavine Create
+            ".easyrecipe",                             // EasyRecipe
+            ".recipe-card, #recipe-card, .recipe-container, #recipe",
+            "[itemtype*=schema.org/Recipe]"             // schema.org microdata
+        };
+        for (String sel : selectors) {
+            Element card = doc.selectFirst(sel);
+            if (card != null) return card;
+        }
+        return null;
+    }
+
+    private String extractTitleFromCard(Element card, Document doc) {
+        Element el = card.selectFirst(".wprm-recipe-name, .tasty-recipes-title, .mv-create-title, .recipe-title, [itemprop=name]");
+        if (el != null) return el.text();
+        Element h2 = card.selectFirst("h2");
+        if (h2 != null) return h2.text();
+        return extractTitle(doc);
+    }
+
+    private String extractImageFromCard(Element card, Document doc) {
+        Element img = card.selectFirst("img[src]");
+        if (img != null) return img.absUrl("src");
+        return extractImage(doc);
+    }
+
+    private String extractIngredientsFromCard(Element card) {
+        Elements items = card.select(".wprm-recipe-ingredient, .tasty-recipe-ingredients li, .mv-create-ingredients li, [itemprop=recipeIngredient], [class*=ingredient] li");
+        if (!items.isEmpty()) return collectText(items);
+
+        // fallback: list items inside any ingredient-ish container
+        Elements sections = card.select("[class*=ingredient]");
+        for (Element section : sections) {
+            Elements lis = section.select("li");
+            if (!lis.isEmpty()) return collectText(lis);
+        }
+        return "";
+    }
+
+    private String extractInstructionsFromCard(Element card) {
+        Elements items = card.select(".wprm-recipe-instruction, .tasty-recipe-instructions li, .mv-create-instructions li, [itemprop=recipeInstructions], [class*=instruction] li, [class*=direction] li");
+        if (!items.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            int n = 1;
+            for (Element item : items) {
+                String text = item.text().trim();
+                if (!text.isEmpty()) sb.append(n++).append(". ").append(text).append("\n");
+            }
+            return sb.toString().trim();
+        }
+
+        Elements sections = card.select("[class*=instruction], [class*=direction]");
+        for (Element section : sections) {
+            Elements els = section.select("li, p");
+            if (!els.isEmpty()) return collectText(els);
+        }
+        return "";
+    }
+
+    private void extractCardMeta(Element card, Recipe recipe) {
+        Element time = card.selectFirst("[class*=total-time], [class*=cook-time], [itemprop=totalTime], [itemprop=cookTime]");
+        if (time != null) {
+            String c = time.attr("content");
+            recipe.setCookTime(!c.isEmpty() ? c.replace("PT", "") : time.text());
+        }
+        Element servings = card.selectFirst("[class*=servings], [itemprop=recipeYield]");
+        if (servings != null) {
+            String c = servings.attr("content");
+            recipe.setServings(!c.isEmpty() ? c : servings.text());
+        }
+        Element cuisine = card.selectFirst("[itemprop=recipeCuisine], [class*=cuisine]");
+        if (cuisine != null) recipe.setCuisine(cuisine.text());
+    }
+
+    // ---- generic page-level extraction (last resort) ----
 
     private String extractTitle(Document doc) {
         Element ogTitle = doc.selectFirst("meta[property=og:title]");
@@ -181,54 +304,45 @@ public class RecipeScrapingService {
     }
 
     private String extractDescription(Document doc) {
-        Element ogDesc = doc.selectFirst("meta[property=og:description]");
-        if (ogDesc != null) return ogDesc.attr("content");
-        Element metaDesc = doc.selectFirst("meta[name=description]");
-        if (metaDesc != null) return metaDesc.attr("content");
+        Element el = doc.selectFirst("meta[property=og:description]");
+        if (el != null) return el.attr("content");
+        el = doc.selectFirst("meta[name=description]");
+        if (el != null) return el.attr("content");
         return "";
     }
 
     private String extractImage(Document doc) {
-        Element ogImage = doc.selectFirst("meta[property=og:image]");
-        if (ogImage != null) return ogImage.attr("content");
-        return null;
+        Element el = doc.selectFirst("meta[property=og:image]");
+        return el != null ? el.attr("content") : null;
     }
 
     private String extractIngredients(Document doc) {
         Elements items = doc.select("[class*=ingredient], [itemprop=recipeIngredient]");
-        if (!items.isEmpty()) {
-            StringBuilder sb = new StringBuilder();
-            for (Element item : items) {
-                sb.append(item.text()).append("\n");
-            }
-            return sb.toString().trim();
-        }
-        return "";
+        return !items.isEmpty() ? collectText(items) : "";
     }
 
     private String extractInstructions(Document doc) {
-        Elements steps = doc.select("[class*=instruction], [class*=direction], [itemprop=recipeInstructions]");
-        if (!steps.isEmpty()) {
-            StringBuilder sb = new StringBuilder();
-            for (Element step : steps) {
-                sb.append(step.text()).append("\n");
-            }
-            return sb.toString().trim();
+        Elements items = doc.select("[class*=instruction], [class*=direction], [itemprop=recipeInstructions]");
+        return !items.isEmpty() ? collectText(items) : "";
+    }
+
+    // ---- util ----
+
+    private String collectText(Elements elements) {
+        StringBuilder sb = new StringBuilder();
+        for (Element el : elements) {
+            String text = el.text().trim();
+            if (!text.isEmpty()) sb.append(text).append("\n");
         }
-        return "";
+        return sb.toString().trim();
     }
 
     private String extractDomain(String url) {
         try {
-            java.net.URI uri = new java.net.URI(url);
-            String host = uri.getHost();
+            String host = new URI(url).getHost();
             return host != null ? host.replaceFirst("^www\\.", "") : "Web";
         } catch (Exception e) {
             return "Web";
         }
-    }
-
-    private String cleanCaption(String caption) {
-        return caption.replaceAll("#\\S+", "").replaceAll("@\\S+", "").trim();
     }
 }
