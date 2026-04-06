@@ -1,0 +1,65 @@
+{
+  "name": "drishyam",
+  "version": "1.0.0",
+  "description": "Drishyam - Video & Recipe Manager",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:frontend": "cd frontend && npm install && npm run build",
+    "build:exe": "npm run build:frontend && electron-builder --win",
+    "dev": "electron ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rahul-M01/drishyam.git"
+  },
+  "author": "Rahul",
+  "license": "ISC",
+  "build": {
+    "appId": "com.site.drishyam",
+    "productName": "Drishyam",
+    "win": {
+      "target": "nsis"
+    },
+    "files": [
+      "main.js",
+      "frontend/dist/**/*",
+      "src/**/*",
+      "build.gradle",
+      "settings.gradle",
+      "gradlew",
+      "gradlew.bat",
+      "gradle/wrapper/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "src",
+        "to": "src"
+      },
+      {
+        "from": "build.gradle",
+        "to": "build.gradle"
+      },
+      {
+        "from": "settings.gradle",
+        "to": "settings.gradle"
+      },
+      {
+        "from": "gradlew.bat",
+        "to": "gradlew.bat"
+      },
+      {
+        "from": "gradle/wrapper",
+        "to": "gradle/wrapper"
+      }
+    ],
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^26.8.1"
+  }
+}
