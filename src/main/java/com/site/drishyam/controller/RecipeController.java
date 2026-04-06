@@ -5,6 +5,7 @@ import com.site.drishyam.service.RecipeScrapingService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -59,5 +60,37 @@ public class RecipeController {
     @GetMapping("/search")
     public ResponseEntity<List<Recipe>> searchRecipes(@RequestParam String q) {
         return ResponseEntity.ok(recipeScrapingService.searchRecipes(q));
+    }
+
+    // searches across title, ingredients, instructions, and cuisine
+    @GetMapping("/lookup")
+    public ResponseEntity<List<Map<String, Object>>> lookup(@RequestParam String q) {
+        List<Recipe> results = recipeScrapingService.deepSearch(q);
+        List<Map<String, Object>> compact = results.stream().map(r -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", r.getId());
+            m.put("title", r.getTitle());
+            m.put("cuisine", r.getCuisine());
+            m.put("cookTime", r.getCookTime());
+            m.put("servings", r.getServings());
+            m.put("ingredients", r.getIngredients());
+            m.put("instructions", r.getInstructions());
+            return m;
+        }).toList();
+        return ResponseEntity.ok(compact);
+    }
+
+    // compact list of all recipe names and ids for the bot
+    @GetMapping("/list")
+    public ResponseEntity<List<Map<String, Object>>> listRecipes() {
+        List<Recipe> all = recipeScrapingService.getAllRecipes();
+        List<Map<String, Object>> compact = all.stream().map(r -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", r.getId());
+            m.put("title", r.getTitle());
+            m.put("cuisine", r.getCuisine());
+            return m;
+        }).toList();
+        return ResponseEntity.ok(compact);
     }
 }

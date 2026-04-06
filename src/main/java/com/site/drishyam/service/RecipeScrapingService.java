@@ -124,6 +124,10 @@ public class RecipeScrapingService {
         return recipeRepository.findByTitleContainingIgnoreCase(query);
     }
 
+    public List<Recipe> deepSearch(String query) {
+        return recipeRepository.searchAll(query);
+    }
+
     // ---- JSON-LD parsing ----
 
     private Recipe parseJsonLd(String json, Recipe recipe) throws Exception {
