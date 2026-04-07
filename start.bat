@@ -5,8 +5,8 @@ echo         Starting Drishyam
 echo ========================================
 echo.
 
-:: Unset this so Electron runs as Electron, not Node
 set ELECTRON_RUN_AS_NODE=
+set OLLAMA_API_KEY=ollama-local
 
 :: Check for Java
 java -version >nul 2>&1
@@ -24,6 +24,16 @@ if %errorlevel% neq 0 (
     echo Please install Node.js and try again.
     pause
     exit /b 1
+)
+
+:: Start Ollama in the background if not already running
+curl -s http://localhost:11434/ >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [Ollama] Starting...
+    start /B "" ollama serve >nul 2>&1
+    timeout /t 3 /nobreak >nul
+) else (
+    echo [Ollama] Already running.
 )
 
 :: Install root dependencies if needed

@@ -50,6 +50,7 @@ data/
 node_modules/
 frontend/node_modules/
 frontend/dist/
+package-lock.json
 
 ### Gradle caches ###
 gradle/caches/
@@ -57,3 +58,6 @@ gradle/daemon/
 gradle/native/
 gradle/wrapper/dists/
 gradle/.tmp/
+
+### Misc ###
+Modelfile

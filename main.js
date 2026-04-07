@@ -1,10 +1,26 @@
 const { app, BrowserWindow } = require('electron');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
 
 const BACKEND_PORT = 8080;
+
+function killPort(port) {
+  if (process.platform === 'win32') {
+    try {
+      const out = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: 'utf8' });
+      const lines = out.trim().split('\n');
+      const pids = new Set(lines.map(l => l.trim().split(/\s+/).pop()));
+      for (const pid of pids) {
+        try { execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore' }); } catch {}
+      }
+      console.log(`[Drishyam] Cleared port ${port}`);
+    } catch {
+      // nothing on the port, good
+    }
+  }
+}
 const FRONTEND_DIR = path.join(__dirname, 'frontend', 'dist');
 
 let backendProcess = null;
@@ -55,11 +71,17 @@ function startBackend() {
 function startOpenclaw() {
   const npxCmd = process.platform === 'win32' ? 'openclaw.cmd' : 'openclaw';
 
+  try { execSync(`${npxCmd} gateway stop`, { stdio: 'ignore', shell: true, timeout: 5000 }); } catch {}
+
   openclawProcess = spawn(npxCmd, ['gateway'], {
     cwd: __dirname,
     shell: true,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env },
+    env: {
+      ...process.env,
+      OLLAMA_API_KEY: 'ollama-local',
+      PATH: path.join(__dirname, 'scripts') + ';' + process.env.PATH,
+    },
   });
 
   openclawProcess.stdout.on('data', (data) => {
@@ -98,7 +120,6 @@ function waitForBackend(retries = 30, delay = 2000) {
 function startProxyServer() {
   return new Promise((resolve) => {
     proxyServer = http.createServer((req, res) => {
-      // Proxy /api requests to Spring Boot
       if (req.url.startsWith('/api')) {
         const options = {
           hostname: 'localhost',
@@ -122,10 +143,8 @@ function startProxyServer() {
         return;
       }
 
-      // Serve static frontend files
       let filePath = path.join(FRONTEND_DIR, req.url === '/' ? 'index.html' : req.url);
 
-      // SPA fallback — serve index.html for routes that don't match a file
       if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
         filePath = path.join(FRONTEND_DIR, 'index.html');
       }
@@ -164,6 +183,8 @@ async function createWindow(port) {
 }
 
 app.on('ready', async () => {
+  killPort(BACKEND_PORT);
+
   console.log('[Drishyam] Starting backend...');
   startBackend();
 
@@ -174,6 +195,11 @@ app.on('ready', async () => {
   try {
     await waitForBackend();
     console.log('[Drishyam] Backend is ready!');
+
+    try {
+      execSync(`node "${path.join(__dirname, 'scripts', 'sync-recipes.js')}"`, { stdio: 'inherit' });
+      console.log('[Drishyam] Recipes synced to OpenClaw.');
+    } catch { console.warn('[Drishyam] Recipe sync failed, continuing...'); }
   } catch {
     console.warn('[Drishyam] Backend may not be ready yet, opening window anyway...');
   }

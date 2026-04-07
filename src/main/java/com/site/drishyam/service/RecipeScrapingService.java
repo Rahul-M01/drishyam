@@ -34,7 +34,6 @@ public class RecipeScrapingService {
         recipe.setSourceUrl(url);
         recipe.setSource(extractDomain(url));
 
-        // try structured data first — most recipe sites have this
         Elements jsonLdScripts = doc.select("script[type=application/ld+json]");
         for (Element script : jsonLdScripts) {
             String json = script.html();
@@ -43,7 +42,6 @@ public class RecipeScrapingService {
             }
         }
 
-        // fall back to scraping the recipe card widget directly
         Element card = findRecipeCard(doc);
         if (card != null) {
             recipe.setTitle(extractTitleFromCard(card, doc));
@@ -128,8 +126,6 @@ public class RecipeScrapingService {
         return recipeRepository.searchAll(query);
     }
 
-    // ---- JSON-LD parsing ----
-
     private Recipe parseJsonLd(String json, Recipe recipe) throws Exception {
         JsonNode root = mapper.readTree(json);
         JsonNode node = findRecipeNode(root);
@@ -174,8 +170,6 @@ public class RecipeScrapingService {
         return recipeRepository.save(recipe);
     }
 
-    // walks through the json-ld tree to find the Recipe node
-    // handles @graph arrays (wordpress/yoast), top-level arrays, and @type as array
     private JsonNode findRecipeNode(JsonNode node) {
         if (node == null) return null;
         if (node.isArray()) {
@@ -202,7 +196,6 @@ public class RecipeScrapingService {
         return false;
     }
 
-    // handles HowToStep, HowToSection (with nested itemListElement), and plain strings
     private void collectSteps(JsonNode instructions, StringBuilder sb) {
         for (JsonNode step : instructions) {
             if (step.isTextual()) sb.append(step.asText()).append("\n");
@@ -216,8 +209,6 @@ public class RecipeScrapingService {
         return iso.replace("PT", "").replace("pt", "")
             .replaceAll("(\\d+)H", "$1h ").replaceAll("(\\d+)M", "$1min").trim();
     }
-
-    // ---- recipe card extraction (html fallback) ----
 
     private Element findRecipeCard(Document doc) {
         String[] selectors = {
@@ -297,8 +288,6 @@ public class RecipeScrapingService {
         if (cuisine != null) recipe.setCuisine(cuisine.text());
     }
 
-    // ---- generic page-level extraction (last resort) ----
-
     private String extractTitle(Document doc) {
         Element ogTitle = doc.selectFirst("meta[property=og:title]");
         if (ogTitle != null) return ogTitle.attr("content");
@@ -329,8 +318,6 @@ public class RecipeScrapingService {
         Elements items = doc.select("[class*=instruction], [class*=direction], [itemprop=recipeInstructions]");
         return !items.isEmpty() ? collectText(items) : "";
     }
-
-    // ---- util ----
 
     private String collectText(Elements elements) {
         StringBuilder sb = new StringBuilder();

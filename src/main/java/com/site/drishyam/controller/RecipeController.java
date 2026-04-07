@@ -62,7 +62,6 @@ public class RecipeController {
         return ResponseEntity.ok(recipeScrapingService.searchRecipes(q));
     }
 
-    // searches across title, ingredients, instructions, and cuisine
     @GetMapping("/lookup")
     public ResponseEntity<List<Map<String, Object>>> lookup(@RequestParam String q) {
         List<Recipe> results = recipeScrapingService.deepSearch(q);
@@ -80,7 +79,6 @@ public class RecipeController {
         return ResponseEntity.ok(compact);
     }
 
-    // compact list of all recipe names and ids for the bot
     @GetMapping("/list")
     public ResponseEntity<List<Map<String, Object>>> listRecipes() {
         List<Recipe> all = recipeScrapingService.getAllRecipes();
