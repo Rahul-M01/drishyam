@@ -66,6 +66,17 @@ public class VideoController {
         return ResponseEntity.ok(video);
     }
 
+    @PutMapping("/{id}")
+    public ResponseEntity<?> updateVideo(@PathVariable Long id, @RequestBody Map<String, String> request) {
+        Video video = videoDownloadService.getVideo(id);
+        if (video == null) return ResponseEntity.notFound().build();
+
+        String title = request.get("title");
+        if (title != null) video.setTitle(title.trim());
+
+        return ResponseEntity.ok(videoDownloadService.save(video));
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<?> deleteVideo(@PathVariable Long id) {
         videoDownloadService.deleteVideo(id);

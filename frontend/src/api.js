@@ -21,6 +21,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ url, extractRecipe: String(extractRecipe) }),
     }),
+  updateVideo: (id, data) =>
+    request(`/videos/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteVideo: (id) => request(`/videos/${id}`, { method: 'DELETE' }),
   videoStreamUrl: (fileName) => `${API_BASE}/videos/stream/${fileName}`,
   thumbnailUrl: (fileName) => `${API_BASE}/videos/thumbnail/${fileName}`,

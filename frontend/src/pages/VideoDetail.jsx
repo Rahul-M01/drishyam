@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, Trash2, BookOpen, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Trash2, BookOpen, ExternalLink, Pencil, Check, X } from 'lucide-react'
 import { api } from '../api'
 
 export default function VideoDetail() {
@@ -9,6 +9,8 @@ export default function VideoDetail() {
   const [video, setVideo] = useState(null)
   const [recipes, setRecipes] = useState([])
   const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(false)
+  const [editTitle, setEditTitle] = useState('')
 
   useEffect(() => {
     const load = async () => {
@@ -30,6 +32,17 @@ export default function VideoDetail() {
     if (confirm('Delete this video?')) {
       await api.deleteVideo(id)
       navigate('/videos')
+    }
+  }
+
+  const saveTitle = async () => {
+    if (!editTitle.trim()) return
+    try {
+      const updated = await api.updateVideo(id, { title: editTitle.trim() })
+      setVideo(updated)
+      setEditing(false)
+    } catch (err) {
+      console.error(err)
     }
   }
 
@@ -73,8 +86,38 @@ export default function VideoDetail() {
 
       {/* Video Info */}
       <div className="flex items-start justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-white">{video.title || 'Untitled Video'}</h1>
+        <div className="flex-1 min-w-0">
+          {editing ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') saveTitle()
+                  if (e.key === 'Escape') setEditing(false)
+                }}
+                className="flex-1 text-2xl font-bold bg-white/5 border border-white/10 rounded-lg px-3 py-1 text-white focus:outline-none focus:border-purple-500/50"
+                autoFocus
+              />
+              <button onClick={saveTitle} className="p-2 rounded-lg hover:bg-green-500/10 text-green-400">
+                <Check size={18} />
+              </button>
+              <button onClick={() => setEditing(false)} className="p-2 rounded-lg hover:bg-white/10 text-neutral-400">
+                <X size={18} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold text-white">{video.title || 'Untitled Video'}</h1>
+              <button
+                onClick={() => { setEditTitle(video.title || ''); setEditing(true) }}
+                className="p-1.5 rounded-lg text-neutral-500 hover:text-white hover:bg-white/10 transition-all"
+              >
+                <Pencil size={14} />
+              </button>
+            </div>
+          )}
           {video.sourceUrl && (
             <a
               href={video.sourceUrl}
